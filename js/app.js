@@ -1,6 +1,6 @@
 // --- Elements ---
 const dateInput   = document.getElementById("dateInput");
-const codeInput   = document.getElementById("codeInput");
+const codeInput   = document.getElementById("codeInput");   // ara serà el correu corporatiu
 const typeInput   = document.getElementById("typeInput");
 
 const fileInput   = document.getElementById("fileInput");
@@ -21,8 +21,11 @@ const statusBox   = document.getElementById("statusBox");
 const codeHelp    = document.getElementById("codeHelp");
 const codesBadge  = document.getElementById("codesBadge");
 
+// --- Config ---
+const ALLOWED_DOMAIN = "digitechfp.com";
+const HASH_LEN = 8; // longitud del "hash curt" (6-8 recomanat)
+
 // --- Estat ---
-let allowedCodes = null;     // Set<string> o null si no s'ha pogut carregar
 let selectedFile = null;     // File
 let previewUrl   = null;     // string
 
@@ -38,13 +41,6 @@ function dateToYYYYMMDD(dateStr){
   // input type="date" retorna YYYY-MM-DD
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
   return dateStr.replaceAll("-", "");
-}
-
-function normalizeCode(raw){
-  // Codi robust: majúscules, sense espais, només A-Z 0-9 _ -
-  if (!raw) return "";
-  const c = raw.trim().toUpperCase();
-  return c.replace(/[^A-Z0-9_-]/g, "");
 }
 
 function fileExt(file){
@@ -64,38 +60,68 @@ function setBadge(text){
   codesBadge.textContent = text;
 }
 
-// --- Codis: carregar codes.json ---
-async function loadCodes(){
-  try{
-    const res = await fetch("./codes.json", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const arr = await res.json();
+// Normalitza correu (minúscules, trim, etc.)
+function normalizeEmail(raw){
+  return (raw || "").trim().toLowerCase();
+}
 
-    if (!Array.isArray(arr)) throw new Error("JSON no és una llista");
-    const set = new Set(arr.map(x => String(x).trim().toUpperCase()).filter(Boolean));
-    if (set.size === 0) throw new Error("Llista buida");
+function isAllowedCorporateEmail(email){
+  // validació simple + domini obligatori
+  // accepta subdominis? aquí NO (només @digitechfp.com)
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!re.test(email)) return false;
+  return email.endsWith(`@${ALLOWED_DOMAIN}`);
+}
 
-    allowedCodes = set;
-    setBadge("Validació: activada");
-    codesBadge.style.color = "var(--good)";
-  }catch(e){
-    allowedCodes = null; // sense validació
-    setBadge("Validació: desactivada");
-    codesBadge.style.color = "var(--warn)";
-    // No és un error crític
+// Base32 “friendly” (sense l, o, etc.) per evitar confusions visuals
+const BASE32_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+// Converteix bytes a Base32 (variant simple)
+function bytesToBase32(bytes){
+  let bits = 0;
+  let value = 0;
+  let output = "";
+
+  for (const b of bytes){
+    value = (value << 8) | b;
+    bits += 8;
+    while (bits >= 5){
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
   }
+  if (bits > 0){
+    output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  }
+  return output;
+}
+
+// Hash curt determinista: SHA-256(email) -> base32 -> primers HASH_LEN caràcters
+async function shortHashFromEmail(email){
+  const enc = new TextEncoder().encode(email);
+  const digest = await crypto.subtle.digest("SHA-256", enc);
+  const bytes = new Uint8Array(digest);
+  const b32 = bytesToBase32(bytes); // llarg
+  return b32.slice(0, HASH_LEN);
+}
+
+function normalizeType(raw){
+  // tipus per al fitxer: només A-Z0-9_- i en majúscules/minúscules? deixem minúscules
+  const t = (raw || "").trim().toLowerCase();
+  const safe = t.replace(/[^a-z0-9_-]/g, "");
+  return safe || "justificant";
 }
 
 // --- Validació ---
-function validateInputs(){
+async function validateInputsAsync(){
   const ymd = dateToYYYYMMDD(dateInput.value);
   if (!ymd) return { ok:false, reason:"Introdueix una data vàlida." };
 
-  const code = normalizeCode(codeInput.value);
-  if (!code) return { ok:false, reason:"Introdueix el teu codi d’alumne." };
+  const email = normalizeEmail(codeInput.value);
+  if (!email) return { ok:false, reason:"Introdueix el teu correu corporatiu." };
 
-  if (allowedCodes && !allowedCodes.has(code)){
-    return { ok:false, reason:"Aquest codi no és vàlid. Revisa’l o demana’l a tutoria/coordinació." };
+  if (!isAllowedCorporateEmail(email)){
+    return { ok:false, reason:`El correu ha d’acabar en @${ALLOWED_DOMAIN}.` };
   }
 
   if (!selectedFile) return { ok:false, reason:"Puja una imatge per continuar." };
@@ -103,47 +129,50 @@ function validateInputs(){
   const ext = fileExt(selectedFile);
   if (!ext) return { ok:false, reason:"El fitxer no té extensió (JPG/PNG/WEBP…)." };
 
-  // accept="image/*" ja filtra, però comprovem
   if (!selectedFile.type.startsWith("image/")){
     return { ok:false, reason:"El fitxer ha de ser una imatge." };
   }
 
-  return { ok:true, ymd, code, ext, type: typeInput.value };
+  const hash = await shortHashFromEmail(email);
+
+  return { ok:true, ymd, hash, ext, type: normalizeType(typeInput.value) };
 }
 
 // --- Nom del fitxer ---
-function buildFileName({ ymd, code, ext, type }){
-  const safeType = normalizeCode(type) || "justificant";
-  return `${ymd}_${code}_${safeType}.${ext}`;
+function buildFileName({ ymd, hash, ext, type }){
+  return `${ymd}_${hash}_${type}.${ext}`;
 }
 
-function refreshUI(){
-  const v = validateInputs();
+async function refreshUI(){
+  // Estat general de “validació”
+  setBadge(`Domini: @${ALLOWED_DOMAIN}`);
+  codesBadge.style.color = "var(--accent)";
 
   if (!selectedFile){
     fileNameOut.textContent = "—";
     nameHint.textContent = "Puja una imatge per completar el nom.";
     copyBtn.disabled = true;
     downloadBtn.disabled = true;
+    setStatus("", null);
     return;
   }
 
-  // Mostra nom parcial encara que falti validació
+  // Mostra nom “preview” si hi ha data+email vàlids
   const ymd = dateToYYYYMMDD(dateInput.value);
-  const code = normalizeCode(codeInput.value);
+  const email = normalizeEmail(codeInput.value);
   const ext = fileExt(selectedFile) || "jpg";
-  const type = typeInput.value;
+  const type = normalizeType(typeInput.value);
 
-  if (ymd && code){
-    fileNameOut.textContent = buildFileName({ ymd, code, ext, type });
-    nameHint.textContent = allowedCodes
-      ? "Nom generat (validació activa)."
-      : "Nom generat (validació desactivada).";
+  if (ymd && isAllowedCorporateEmail(email)){
+    const hash = await shortHashFromEmail(email);
+    fileNameOut.textContent = buildFileName({ ymd, hash, ext, type });
+    nameHint.textContent = "Nom generat a partir del teu correu corporatiu (no es guarda ni s’envia).";
   }else{
     fileNameOut.textContent = "—";
-    nameHint.textContent = "Completa data i codi per veure el nom final.";
+    nameHint.textContent = `Completa data i correu @${ALLOWED_DOMAIN} per veure el nom final.`;
   }
 
+  const v = await validateInputsAsync();
   copyBtn.disabled = !v.ok;
   downloadBtn.disabled = !v.ok;
 
@@ -160,7 +189,6 @@ function refreshUI(){
 function setSelectedFile(file){
   if (!file) return;
 
-  // Cleanup preview anterior
   if (previewUrl){
     URL.revokeObjectURL(previewUrl);
     previewUrl = null;
@@ -194,7 +222,7 @@ function resetFile(){
 
 // --- Accions ---
 copyBtn.addEventListener("click", async () => {
-  const v = validateInputs();
+  const v = await validateInputsAsync();
   if (!v.ok) return;
 
   const name = buildFileName(v);
@@ -202,7 +230,6 @@ copyBtn.addEventListener("click", async () => {
     await navigator.clipboard.writeText(name);
     setStatus("Nom copiat al porta-retalls.", "good");
   }catch{
-    // fallback
     const ta = document.createElement("textarea");
     ta.value = name;
     document.body.appendChild(ta);
@@ -213,13 +240,12 @@ copyBtn.addEventListener("click", async () => {
   }
 });
 
-downloadBtn.addEventListener("click", () => {
-  const v = validateInputs();
+downloadBtn.addEventListener("click", async () => {
+  const v = await validateInputsAsync();
   if (!v.ok) return;
 
   const newName = buildFileName(v);
 
-  // Descarrega el mateix fitxer amb nou nom (no re-encode)
   const url = URL.createObjectURL(selectedFile);
   const a = document.createElement("a");
   a.href = url;
@@ -236,12 +262,14 @@ resetBtn.addEventListener("click", resetFile);
 
 // --- Inputs: canvis ---
 dateInput.addEventListener("change", refreshUI);
+
 codeInput.addEventListener("input", () => {
-  // Normalitza mentre escriu (sense ser agressiu)
-  const normalized = normalizeCode(codeInput.value);
+  // Normalitza a minúscules mentre escriu (suau)
+  const normalized = normalizeEmail(codeInput.value);
   if (codeInput.value !== normalized) codeInput.value = normalized;
   refreshUI();
 });
+
 typeInput.addEventListener("change", refreshUI);
 
 // --- Dropzone events ---
@@ -279,7 +307,7 @@ dropzone.addEventListener("drop", (e) => {
 // --- Init ---
 (function init(){
   dateInput.value = todayAsYYYYMMDD();
-  loadCodes().finally(() => {
-    refreshUI();
-  });
+  // Informatiu: ja no hi ha codes.json
+  setBadge(`Domini: @${ALLOWED_DOMAIN}`);
+  refreshUI();
 })();
