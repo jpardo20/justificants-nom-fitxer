@@ -56,10 +56,6 @@ function setStatus(msg, kind){
   if (kind) statusBox.classList.add(kind);
 }
 
-function setBadge(text){
-  codesBadge.textContent = text;
-}
-
 // Normalitza correu (minúscules, trim, etc.)
 function normalizeEmail(raw){
   return (raw || "").trim().toLowerCase();
@@ -145,7 +141,6 @@ function buildFileName({ ymd, hash, ext, type }){
 
 async function refreshUI(){
   // Estat general de “validació”
-  setBadge(`Domini: @${ALLOWED_DOMAIN}`);
   codesBadge.style.color = "var(--accent)";
 
   if (!selectedFile){
@@ -308,6 +303,5 @@ dropzone.addEventListener("drop", (e) => {
 (function init(){
   dateInput.value = todayAsYYYYMMDD();
   // Informatiu: ja no hi ha codes.json
-  setBadge(`Domini: @${ALLOWED_DOMAIN}`);
   refreshUI();
 })();
