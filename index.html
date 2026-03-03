@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ca">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Generador de nom de justificant</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="bg">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div class="brand-text">
+          <h1>Justificants</h1>
+          <p>Genera el nom correcte i descarrega la imatge renombrada</p>
+        </div>
+      </div>
+      <div class="badge" id="codesBadge" title="Estat de validació de codis">Validació: …</div>
+    </header>
+
+    <main class="wrap">
+      <section class="card">
+        <h2>Dades</h2>
+
+        <div class="grid">
+          <label class="field">
+            <span>Data del justificant</span>
+            <input type="date" id="dateInput" />
+            <small>Es transformarà a <strong>YYYYMMDD</strong>.</small>
+          </label>
+
+          <label class="field">
+            <span>Codi alumne</span>
+            <input type="text" id="codeInput" placeholder="Ex: A142" autocomplete="off" />
+            <small id="codeHelp">Introdueix el codi oficial que t’ha indicat el centre.</small>
+          </label>
+
+          <label class="field">
+            <span>Tipus</span>
+            <select id="typeInput">
+              <option value="justificant" selected>justificant</option>
+              <option value="retard">retard</option>
+              <option value="falta">falta</option>
+              <option value="altre">altre</option>
+            </select>
+            <small>Pots deixar el valor per defecte.</small>
+          </label>
+
+          <div class="field">
+            <span>Nom del fitxer</span>
+            <div class="filename">
+              <code id="fileNameOut">—</code>
+              <button class="btn ghost" id="copyBtn" type="button" disabled>Copiar</button>
+            </div>
+            <small id="nameHint">Puja una imatge per completar el nom.</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Imatge</h2>
+
+        <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Arrossega una imatge o fes clic per seleccionar-la">
+          <input type="file" id="fileInput" accept="image/*" hidden />
+          <div class="dz-inner">
+            <div class="dz-icon" aria-hidden="true">⬆</div>
+            <div class="dz-text">
+              <strong>Arrossega i deixa anar</strong> la imatge aquí<br />
+              o <span class="linklike">fes clic per seleccionar-la</span>
+            </div>
+            <div class="dz-meta" id="fileMeta">Formats: JPG / PNG / WEBP · Màx recomanat: 8MB</div>
+          </div>
+        </div>
+
+        <div class="previewRow" id="previewRow" hidden>
+          <div class="preview">
+            <img id="previewImg" alt="Previsualització del justificant" />
+          </div>
+
+          <div class="actions">
+            <button class="btn" id="downloadBtn" type="button" disabled>Descarregar amb el nom correcte</button>
+            <button class="btn ghost" id="resetBtn" type="button">Canviar imatge</button>
+
+            <div class="status" id="statusBox" aria-live="polite"></div>
+
+            <details class="details">
+              <summary>Nota de privacitat</summary>
+              <p>
+                Aquesta pàgina <strong>no envia</strong> cap informació a cap servidor.
+                La imatge es processa <strong>només al teu navegador</strong> per renombrar-la i descarregar-la.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <p>Si tens dubtes amb el teu codi, demana’l al tutor/coordinació.</p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
